@@ -1,0 +1,10 @@
+# engine_feedback_node 参数（J1939 来自 can_interface）
+engine_feedback_node:
+  ros__parameters:
+    can_interface: "can1"
+
+    # 超过该时间(秒)未收到新的有效 0x0CF00400 发动机转速，JSON 中 engine_speed_rpm = -1
+    engine_speed_stale_timeout_sec: 300.0
+
+    # 超过该时间(秒)未收到新的有效 ET1(0x18FEEE00) 对应水温/油温字节，coolant_temp_degC / oil_temp_degC = -1
+    et1_stale_timeout_sec: 300.0

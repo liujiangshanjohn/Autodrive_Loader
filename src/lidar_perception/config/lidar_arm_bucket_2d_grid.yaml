@@ -1,0 +1,50 @@
+# 雷达坐标系（与 /rslidar_points 一致）下单个长方体 ROI + 网格降采样
+lidar_arm_bucket_2d_grid:
+  ros__parameters:
+    input_topic: "/rslidar_points"
+    # ROS2 要求话题名每段不得以数字开头，故不能用 .../2dlidar_points
+    output_topic: "/cyber_msgs/lidar_2d_points"
+
+    # 侧视轮廓（雷达 x–z）：compress_axis 必须为 y（去掉左右向 y，保留前进 x 与高度 z）
+    # PointGrid 逻辑上 points[].x=雷达 x、.y=雷达 z；若 swap_output_xy=true，发布后二者已对调
+    # 下面 PointCloud2 为同一批格点的标准 xyz：(x, 0, z)，RViz 订阅即竖直面上的稀疏「2D 点云」
+    output_pointcloud2_topic: "/lidar_arm_bucket/xz_profile"
+
+    # 仅作用于发布的 PointGrid / PointCloud2：各分量 out = in * scale + translate（与雷达系量纲一致时 translate 单位为米）
+    output_scale: 20.0
+    output_translate_x: 0.0
+    output_translate_y: 0.0
+    output_translate_z: 0.0
+
+    # true：发布前交换输出点的 x 与 y（与下游坐标差 90° 时常用）
+    swap_output_xy: true
+
+    # 发布频率（Hz）。20 对应 bucket_point_grid 里 50ms 定时器，与 /cyber_msgs/point_grid 一致；0 表示每帧输入都发布
+    publish_rate_hz: 20.0
+
+    # 输入抽稀：每 N 个点参与网格聚合一次（减轻 CPU，避免与 RViz/雷达争用导致「一卡一卡」）；1=不抽稀
+    input_point_stride: 2
+    # ROI 盒 Marker 每处理 N 帧才发一次，减轻 DDS；调 ROI 时可改为 1
+    roi_marker_decimation: 5
+
+    # 2d：平面格点；3d：每格完整三维代表点（此时不发布上方 PointCloud2）
+    projection_mode: "2d"
+    projection_3d_metric: "max"
+
+    # z→XY 俯视；y→XZ 侧视；x→YZ 正视（单位 m）
+    compress_axis: "y"
+    # ROI 内点数仅由网格步长决定，不设 max_points 上限
+    grid_step_m: 0.05
+
+    # 调 ROI 时建议开启：在 RViz 新增 Marker，订阅下方话题，与 PointCloud2 同 Fixed Frame（一般为点云 header.frame_id）
+    publish_roi_marker: false
+    roi_marker_topic: "lidar_arm_bucket/roi"
+
+    # 雷达系下 ROI：仅保留框内点；各轴需 min < max，否则该 ROI 视为关闭（全图通过）
+    roi:
+      x_min: -8.0
+      x_max: 8.0
+      y_min: 1.0
+      y_max: 4.0
+      z_min: 0.0
+      z_max: 10.0

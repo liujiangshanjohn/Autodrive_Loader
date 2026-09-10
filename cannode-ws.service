@@ -1,0 +1,20 @@
+[Unit]
+Description=CANNode ROS2 workspace autostart (cannode_ws)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/media/nvidia/00code/cannode_ws
+ExecStart=/media/nvidia/00code/cannode_ws/run.sh
+User=root
+Group=root
+Environment=ROS_LOG_DIR=/media/nvidia/00code/cannode_ws/log
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+

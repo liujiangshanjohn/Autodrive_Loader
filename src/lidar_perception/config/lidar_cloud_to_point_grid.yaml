@@ -1,0 +1,50 @@
+lidar_cloud_to_point_grid:
+  ros__parameters:
+    cloud_topic: "/rslidar_points_fixed"
+    output_topic: "/cyber_msgs/point_grid"
+
+    # Camera intrinsics
+    camera_frame: "camera_main"
+    # cam_geac overlays on the undistorted main image; its undistort uses focus_rate=0.8.
+    fx: 405.24
+    fy: 405.50
+    cx: 961.90
+    cy: 536.51
+    img_width: 1920
+    img_height: 1080
+
+    # Pixel conventions
+    pixel_origin: "top_left"
+    # With current extrinsic, camera forward is +X.
+    forward_axis: "z"
+    forward_sign: 1.0
+    down_sign: 1.0
+    clamp_to_image: false
+    u_offset_px: 0.0
+    v_offset_px: 0.0
+
+    # Treat static_tfs.1 as lidar->camera (matches the comment below and typical naming).
+    extrinsic_direction: "lidar_to_camera"
+
+    # Extrinsic: rslidar -> camera_main (copy from bucket_point_grid_params.yaml static_tfs.1.*)
+    static_tfs.1.xyz_m: [1.1, 1.0, -0.4]
+    # Fine-tune from the original copy to better align the bucket/ground overlay in the main camera.
+    static_tfs.1.rpy_deg: [32.0, -0.0, -91.0]
+
+    # # Extrinsic: rslidar -> camera_main (copy from bucket_point_grid_params.yaml static_tfs.1.*)
+    # static_tfs.1.xyz_m: [1.1, 0.9, -0.4]
+    # # Fine-tune from the original copy to better align the bucket/ground overlay in the main camera.
+    # static_tfs.1.rpy_deg: [2.0, -31.0, -93.0]
+
+    # Performance guards (IMPORTANT for HUD)
+    max_points: 2000
+    stride: 5
+    min_range_m: 0.3
+    max_range_m: 10.0
+
+    # ROI (lidar frame): keep only points inside an axis-aligned box
+    # Default is 10×10×10m centered at (0,0,0) in rslidar frame.
+    use_aabb_roi: true
+    roi_center_xyz_m: [0.0, 0.0, 0.0]
+    roi_size_xyz_m: [10.0, 10.0, 10.0]
+

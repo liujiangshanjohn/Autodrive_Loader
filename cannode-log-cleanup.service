@@ -1,0 +1,15 @@
+[Unit]
+Description=CANNode workspace log cleanup (keep 7 days)
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/bin/bash /media/nvidia/00code/cannode_ws/cleanup_logs.sh
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target
+

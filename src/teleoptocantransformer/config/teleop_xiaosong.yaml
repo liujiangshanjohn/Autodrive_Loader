@@ -1,0 +1,73 @@
+teleop2can_transformer_xiaosong:
+  ros__parameters:
+    # ===== 输出话题开关 =====
+    publish_vehicle_command: true          # /vehicle_command
+    publish_vehicle_command_debug: true    # /vehicle_command_debug
+    publish_chassis_feedback: true         # cannode/chassis_feedback
+    verbose_log: false                     # 是否打印详细日志（关闭可降低CPU）
+
+    # ===== 网络 QoS 阈值与降级参数（可根据现场网络情况调整）=====
+
+    # 🟡 级别 2（警告/降级）阈值
+    network_qos_rtt_level2_ms: 40.0           # RTT 超过该值进入 YELLOW
+    network_qos_loss_level2_pct: 0.5           # 丢包率超过该值进入 YELLOW
+    network_qos_jitter_level2_ms: 15.0         # 抖动超过该值进入 YELLOW
+
+    # 🔴 级别 3（危险）阈值
+    network_qos_rtt_level3_ms: 120.0           # RTT 超过该值开始计时
+    network_qos_rtt_level3_hold_sec: 1.0       # RTT>level3 持续多久判定 RED
+    network_qos_loss_level3_pct: 10.0          # 严重丢包阈值
+
+    # 🟡 级别 2 的动作限幅与平滑滤波
+    network_level2_input_limit: 0.5            # 最大输入幅度（约等于最大速度比例）
+    network_level2_filter_alpha: 0.5           # 一阶低通滤波系数（越小越平滑）
+
+    # 等级“升级”（RED->YELLOW/GREEN，YELLOW->GREEN）所需的连续 QoS 次数
+    network_upgrade_required_count: 5
+
+    # ===== /chcnav/devpvt 偏置补偿（用于远控显示微调）=====
+    # chcnav_devpvt JSON：经纬高 + yaw 来自 GNSS + lat/lon/alt/yaw 偏置；roll/pitch 与 roll_angle/pitch_angle 同源（/tilt_body）。
+    # devpvt_roll/pitch_bias 保留兼容，当前不写入 chcnav；devpvt_yaw_bias_deg 仍作用于 chcnav 的 yaw。
+    # 注意：ros2 launch 默认加载 install/share/.../本文件；只改 src 未 colcon build 则节点仍读旧副本。
+    # 可选：xiaosong_params_file:=<yaml 绝对路径> 或 colcon build --packages-select teleoptocantransformer
+    # 单位：
+    #  - lat/lon: deg
+    #  - altitude: m
+    #  - roll/pitch_bias: deg（当前未写入 chcnav）；yaw_bias: deg（写入 chcnav yaw）
+    devpvt_lat_bias_deg: 0.0
+    devpvt_lon_bias_deg: 0.0
+    devpvt_alt_bias_m: -4.0   # 远控画面海拔显示 = 惯导海拔 - 4 m
+    devpvt_roll_bias_deg: 0.0
+    devpvt_pitch_bias_deg: 0.0
+    devpvt_yaw_bias_deg: 0.0
+
+    # ===== 倾角仪动作限幅（比例阀输出）=====
+    # 订阅话题与 cannode/config/multi_tilt_imu/multi_tilt_imu.yaml 中 sensor_topics 一致。
+    # 默认关闭；开启后按各关节最小/最大角度（度）限制：达上限则禁止“正向”动作一侧电磁阀电流，达下限则禁止“负向”一侧。
+    # 任一角超出 [min,max] 时 cannode/chassis_feedback JSON 字段 action_limit_exceed=1（否则 0），与 network_degrade_level 并列；经 cam_geac 精简遥测一并上传远端。
+    # 大臂：默认「读数大=几何高端」-> 高端禁抬升(arm_up)、低端禁下降(arm_down)
+    # 若现场倾角随抬升反而减小，会在「抬到顶」时误禁下降：将 boom_angle_limit_swap_sides 置 true
+    # 斗杆/铲斗/车身同理：stick_angle_limit_swap_sides、bucket_angle_limit_swap_sides、body_angle_limit_swap_sides
+    angle_limit_enable: true
+    boom_angle_limit_swap_sides: false
+    stick_angle_limit_swap_sides: false
+    bucket_angle_limit_swap_sides: false
+    body_angle_limit_swap_sides: false
+    boom_angle_min_deg: 8.0
+    boom_angle_max_deg: 80.0
+    stick_angle_min_deg: -100.0
+    stick_angle_max_deg: 20.0
+    bucket_angle_min_deg: -100.0
+    bucket_angle_max_deg: 15.0
+    body_angle_min_deg: -360.0
+    body_angle_max_deg: 360.0
+    tilt_boom_topic: "/tilt_boom"
+    tilt_stick_topic: "/tilt_stick"
+    tilt_bucket_topic: "/tilt_bucket"
+    tilt_body_topic: "/tilt_body"
+    # 限幅使用的轴：pitch / roll / yaw（按传感器安装方向选择；不区分大小写）
+    angle_limit_boom_axis: "pitch"
+    angle_limit_stick_axis: "pitch"
+    angle_limit_bucket_axis: "pitch"
+    angle_limit_body_axis: "yaw"
+

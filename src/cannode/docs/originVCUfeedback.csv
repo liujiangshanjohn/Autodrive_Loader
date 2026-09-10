@@ -1,0 +1,7 @@
+﻿发送端 (Sender),消息标识符 (Msg ID (Hex)),消息名称 (Message Name),固定周期 (FixedPeriodic),消息长度 (DLC),信号名称 (Signal Name),信号长度 (Size/bits),信号位置 (Bit Position),信号描述 (Signal description),单位 (Unit),系数 (Factor),偏移量 (Offset),电脑最小值 (Min (computer)),物理最小值 (Min (physical)),电脑最大值 (Max (computer)),物理最大值 (Max (Physical)),物理默认值 (Default value),接收端 (Receiver),备注 (Comments)
+ECU,0CF00400,Engine_Speed,500ms,8,Engine_Speed,16,31-24、39-32,发动机转速,rpm/bit,0.125,0,0x0,0,0xFA00,8000,0,ADM,发动机转速反馈
+EGN,18FEE500,EH,1000ms,8,Accumulated_running_time,31,0,发动机累计运行时间,h/bit,0.05,0,0x0,0,0xFFFFFFFF,214748364.75 ,0,ALL,发动机累计运行时间
+EGN,18FEEE00,ET1,1000ms,8,Eng_cooling_water_temp,8,0,发动机冷却水温度,℃/bit,1,0,0x0,-40,0xFF,210,0,ALL,-
+EGN,18FEEE00,ET1,1000ms,8,Eng_oil_temp,16,16,机油温度,℃/bit,0.03125,-273,0x0,-273,0xFFFF,1735,0,ALL,-
+EGN,18FEEF00,EFL/P1,500ms,8,Oil_press,8,24,机油压力,kPa/bit,4,0,0x0,0,0xFF,1000,0,ALL,-
+EGN,18FEEF00,EFL/P1,500ms,8,Cool_water_level,8,56,冷却液液位,%/bit,0.4,0,0x0,0,0xFF,100,0,ALL,-

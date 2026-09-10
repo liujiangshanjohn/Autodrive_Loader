@@ -1,0 +1,105 @@
+bucket_point_grid_publisher:
+  ros__parameters:
+    use_sim_time: false
+    frames:
+      base_link: "base_link"
+      upper_link: "upper_link"
+      boom_link: "boom_link"
+      stick_link: "stick_link"
+      bucket_link: "bucket_link"
+      bucket_open: "bucket_open"
+
+    tilt_topics:
+      boom: "/tilt_boom"
+      stick: "/tilt_stick"
+      bucket: "/tilt_bucket"
+      body: "/tilt_body"
+
+    tilt_axes:
+      boom: "pitch"
+      stick: "pitch"
+      bucket: "pitch"
+      body: "yaw"
+
+    tilt_zeros_deg:
+      boom: 0.0
+      stick: 0.0
+      bucket: 0.0
+      body_roll: 0.0
+      body_pitch: 0.0
+      body_yaw: 0.0
+
+    rotary_encoder:
+      topic: "/rotary_encoder_angle"
+      yaw_zero_deg: 0.0
+
+    # QoS：rosbag2_player 默认 BEST_EFFORT 发布，这里需匹配否则会“看得到话题但收不到消息”
+    input_qos:
+      tilt_reliable: false
+      encoder_reliable: false
+
+    bucket_open_tracker:
+      pointcloud_topic: "/rslidar_points_fixed"
+      use_cloud_frame_id: true
+      cloud_qos_reliable: false
+      lidar_frame: "rslidar"
+      predicted_frame: "bucket_open"
+
+      grid_resolution_m: 0.1
+      grid_width_m: 3.22
+      grid_length_m: 3.22
+
+      point_grid:
+        camera_frame: "camera_main"
+        fx: 405.24
+        fy: 405.50
+        cx: 961.90
+        cy: 536.51
+        u_offset_px: 0.0
+        v_offset_px: 0.0
+        use_ground_quad: false
+        use_pixel_quad: false
+        use_pixel_grid: false
+        img_width: 1920
+        img_height: 1080
+        pixel_origin: "top_left"
+        forward_axis: "z"
+        forward_sign: 1.0
+        down_sign: 1.0
+        clamp_to_image: false
+
+    angle_model:
+      use_relative_angles: true
+      boom_rel_body_zero_deg: 15.0
+      stick_rel_boom_zero_deg: -10.0
+      bucket_rel_stick_zero_deg: 60.0
+      boom_pitch_sign: -1.0
+      stick_pitch_sign: -1.0
+      bucket_pitch_sign: 1.0
+
+    kinematics:
+      swing_center_xyz_m: [0.0, 0.0, 1.80] # 地面到旋转中心upperlink距离，其实没太大意义
+      boom_joint_xyz_m: [0.45, 0.0, 1.95] # 大臂根部铰点相对 upper_link（原点在回转中心）的偏移。
+      boom_length_m: 6.0
+      stick_length_m: 4.45
+      bucket_open_xyz_m: [0.0, 0.0, -0.5]
+
+    static_tfs.0.parent: "upper_link"
+    static_tfs.0.child: "rslidar"
+    #分别是：upperlink在雷达的后方X米，右方X米，下方X米
+    #其中最后一个高度应该减去boom到upperlink的距离（boom_joint_xyz_m[2]），为雷达到大臂末端中心boom_link的距离，正常应该是1.6米左右高度差，所以Z应该为1.8+1.6=3.4
+    static_tfs.0.xyz_m: [2.75, 3.2, 3.4] 
+    # 按口述安装约束（右手系）：
+    # - rslidar +X 对齐 upper_link +Z
+    # - rslidar +Z 对齐 upper_link +X
+    # 推导得到 rpy_deg = [0, -90, -180]（与等价欧拉组可能不同，但姿态应一致）
+    static_tfs.0.rpy_deg: [0.0, -90.0, 180.0]
+
+    static_tfs.1.parent: "rslidar"
+    static_tfs.1.child: "camera_main"
+    static_tfs.1.xyz_m: [0.9, 1.1, -0.9]
+    # 按口述：相机翻转 180° 后，再下俯约 30°；并假设 camera_main 4+X 为朝前轴
+    # 收敛结果：yaw=-75° 将点阵挪到铲斗右侧区域；pitch 在 20~30° 间越小越“抬高”
+    # 这里先取 pitch=30°（更接近画面中部且不易越界）；如需再贴铲斗可在此基础上微调 pitch/yaw
+    static_tfs.1.rpy_deg: [33.0, 5.0, -90.0]
+

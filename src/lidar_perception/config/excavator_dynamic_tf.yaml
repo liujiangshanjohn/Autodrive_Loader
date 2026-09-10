@@ -1,0 +1,135 @@
+frames:
+  base_link: "base_link"
+  upper_link: "upper_link"
+  boom_link: "boom_link"
+  stick_link: "stick_link"
+  bucket_link: "bucket_link"
+  bucket_open: "bucket_open"
+
+# multi_tilt_imu.yaml 对应的倾角话题
+tilt_topics:
+  boom: "/tilt_boom"
+  stick: "/tilt_stick"
+  bucket: "/tilt_bucket"
+  body: "/tilt_body"
+
+# 选择 TiltRPY 的哪个轴作为“角度输入”（度）
+# 注意：不同安装方式会导致轴不同；按实车调整
+tilt_axes:
+  boom: "pitch"
+  stick: "pitch"
+  bucket: "pitch"
+  body: "yaw"   # 车身回转角建议来自编码器；如无编码器可先用 yaw 试跑（可能漂移）
+
+# 各倾角仪零点偏置（度）：使用 corrected = raw - zero
+# 建议直接复用你们 multi_tilt_imu.yaml 里每个 IMU 的 zero 定义
+tilt_zeros_deg:
+  boom: 0.0
+  stick: 0.0
+  bucket: 0.0
+  body_roll: 0.0
+  body_pitch: 0.0
+  body_yaw: 0.0
+
+# 回转编码器（Danfoss）：使用 /rotary_encoder_angle 的 angle1（度）
+rotary_encoder:
+  topic: "/rotary_encoder_angle"
+  # 零点偏置（度）：使用 swing_yaw = raw_angle1 - yaw_zero_deg
+  yaw_zero_deg: 0.0
+
+# === bucket_open 点云追踪（airy96）===
+bucket_open_tracker:
+  pointcloud_topic: "/rslidar_points_fixed"   # airy96 PointCloud2 话题
+  # 若点云 header.frame_id 与 lidar_frame 不一致，建议保持 true（默认）
+  use_cloud_frame_id: true
+  # rosbag2_player 默认用 RELIABLE 发布点云；这里默认用 RELIABLE 订阅以确保兼容
+  # 回放/传感器点云建议 BestEffort，避免 Reliable 反压导致 rosbag 回放降频
+  cloud_qos_reliable: false
+  lidar_frame: "rslidar"
+  predicted_frame: "bucket_open"
+
+  # 落点预测输出网格，简化为俯视图下，铲斗在地面上的投影
+  grid_resolution_m: 0.1
+  grid_width_m: 3.22
+  grid_length_m: 3.22
+
+  # === /cyber_msgs/point_grid 输出（像素坐标）===
+  # 约定：PointGrid.msg 中 x,y 为图像像素坐标，左上为 (0,0)
+  point_grid:
+    camera_frame: "camera_main"
+    fx: 506.54
+    fy: 506.87
+    cx: 961.90
+    cy: 536.51
+    img_width: 1920
+    img_height: 1080
+    # 像素坐标系约定：
+    # - top_left: 左上为 (0,0)，x 向右增大，y 向下增大（常见图像坐标）
+    # - bottom_right: 右下为 (0,0)，x 向左增大，y 向上增大（远控界面坐标）
+    pixel_origin: "bottom_right"
+    clamp_to_image: true
+
+    # 调试：强制发布固定像素点阵（忽略投影/TF）
+    debug_force_fixed_uv: false
+    # 10x10 点阵覆盖范围约为 [debug_u-span/2, debug_u+span/2]
+    # 这里设置为 500~600 区间（中心 550，span 100）
+    debug_u: 800
+    debug_v: 400
+    debug_span_px: 100
+
+# 角度模型：是否由“各 link 的绝对倾角”计算相对关节角（推荐 true）
+angle_model:
+  use_relative_angles: true
+  # 这些 zero 参数和 multi_tilt_imu.yaml 的定义一致（单位：度）
+  # 这里直接复用 multi_tilt_imu.yaml 里已经标定好的相对角零点：
+  #   boom_rel_body_zero_deg: -40.0
+  #   stick_rel_boom_zero_deg: 120.0
+  #   bucket_rel_stick_zero_deg: 0.0
+  # 这样 multi_tilt_imu_node 里的“相对角”定义与 TF 里的几何模型保持一致，便于后续对齐。
+  boom_rel_body_zero_deg: 0.0
+  stick_rel_boom_zero_deg: 0.0
+  bucket_rel_stick_zero_deg: 0.0
+  # 各关节 pitch 方向符号（+1/-1）。默认 +1；当某一级“翻到上面”时常用 -1 来修正。
+  boom_pitch_sign: 1.0
+  stick_pitch_sign: 1.0
+  bucket_pitch_sign: 1.0
+
+kinematics:
+  # base_link 原点：两根履带接地中心点连线的中点；+X 向前，+Y 向左，+Z 向上
+  # swing_center_xyz_m: 回转中心相对 base_link（与规格书 E=2095mm 一致）
+  swing_center_xyz_m: [0.0, 0.0, 1.13]
+
+  # boom_joint_xyz_m: 动臂根部铰点相对 upper_link（原点在回转中心）的偏移。
+  boom_joint_xyz_m: [0.0, 0.0, 1.06]
+
+  boom_length_m: 3.96
+  stick_length_m: 2.23
+
+  # bucket_open：刃口/齿尖类参考点在 bucket_link 下（+X 沿斗杆→铲斗延伸方向）
+  # 11m³ 级铲斗：铰点至刃口水平距离粗估 ~1.5~2.0m；z 略低于销轴为负
+  bucket_open_xyz_m: [1.5, 0.0, -0.2]
+
+# 固定外参：upper_link -> rslidar（与 /rslidar_points 的 header.frame_id 一致，不再使用 lidar_airy96 中间帧）。
+# rpy_deg: [roll, pitch, yaw]，单位：度；与 tf2::Quaternion::setRPY 一致
+# 注意：YAML 里是一次性从「单位姿态」旋转到子系，不是 Foxglove 里在上一版角度上「再拧」。
+# 「pitch=-90 已对」时若还想绕某轴再转 180°，应对四元数做乘法后反解 rpy，或单独用 roll/yaw 表达该轴翻转；勿误以为把 pitch 改成 180 等于「在 -90 基础上再翻半圈」。
+# 同一姿态的 RPY 不唯一，Foxglove 解出的 R/P/Y 可能与 YAML 不同但四元数一致，属正常现象。
+static_tfs:
+  - parent: "upper_link"
+    child: "rslidar"
+    xyz_m: [2.89, 2.015, 2.905]
+    # 绕 Y 的 pitch=±180° 与 rslidar 点云轴约定不匹配时会整片「倒立」；本工程以 pitch=-90° 与实车/回放一致。
+    # Foxglove 若显示 R=±180,P=0,Y=±180，常与 setRPY(0,180,0) 为同一姿态（欧拉角不唯一），不代表发布错了。
+    # 按口述安装约束（右手系）：
+    # - rslidar +X 对齐 upper_link +Z
+    # - rslidar +Z 对齐 upper_link +X
+    rpy_deg: [0.0, -90.0, -180.0]
+
+  - parent: "rslidar"
+    child: "camera_main"
+    # 由原 lidar_airy96->camera_main 外参平移：雷达系与点云 frame 均为 rslidar
+    xyz_m: [0.26, -1.02, 1.95]
+    # 按口述：相机翻转 180° 后，再下俯约 30°；并假设 camera_main +X 为朝前轴
+    # 通过像素点阵收敛 yaw 到 -75°（使点阵落入铲斗所在右侧区域）
+    rpy_deg: [180.0, 30.0, -75.0]
+

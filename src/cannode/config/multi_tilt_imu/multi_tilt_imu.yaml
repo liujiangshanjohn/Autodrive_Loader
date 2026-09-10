@@ -1,0 +1,49 @@
+multi_tilt_imu_node:
+  ros__parameters:
+    # CAN 相关配置
+    # CAN 通道名称，示例：can0 / can1
+    can_interface: "can0"
+
+    # CAN 波特率（单位：bit/s），这里仅作为配置参数和日志输出使用
+    # 实际波特率配置依然建议在系统层面通过 ip link 等命令完成
+    can_bitrate: 250000
+
+    # 请求/响应基础 CAN ID，实际 ID = 基础 ID + 节点 ID
+    # 例如默认请求 ID = 0x600 + node_id，响应 ID = 0x580 + node_id
+    request_base_can_id: 1536   # 十六进制 0x600
+    response_base_can_id: 1408  # 十六进制 0x580
+
+    # 请求周期，单位毫秒（当 enable_request 为 false 时该参数无效）
+    request_period_ms: 50
+
+    # 是否启用周期请求帧；false 时驱动不会主动发送 0x600+node_id 请求，只被动解析 0x580+node_id 响应帧
+    enable_request: false
+
+    # 倾角仪数量由下面两个数组共同决定：
+    # - sensor_ids: 每个倾角仪在 CANopen 网络中的节点 ID
+    # - sensor_topics: 对应的 ROS2 话题名
+    # 两个数组长度必须一致，多余部分会被截断
+    sensor_ids: [5,6,7,8]
+    sensor_topics:
+      - "/tilt_bucket"    # 铲斗
+      - "/tilt_stick"     # 斗杆
+      - "/tilt_boom"      # 大臂   
+      - "/tilt_body"      # 车身
+
+    # 车身倾角仪 PITCH 零点偏置（单位：度）
+    # 用于校准车身倾角仪的 PITCH 零点，如果车身在水平位置时读数为非零值，设置此偏置来校准
+    body_pitch_offset_deg: 0.0        # 车身倾角仪 PITCH 零点偏置（仅影响相对角计算）
+    # 仅用于修正 /tilt_body 话题中发布的 pitch（单位：度），不会影响相对角计算
+    body_topic_pitch_offset_deg: 6.0
+    
+    # 挖掘机相对角零点配置（单位：度）
+    # 建议在"零位姿态"（例如：车身水平、大臂与斗杆/铲斗处于参考位置）时，
+    # 记录当前计算出的相对角，并填写到如下参数中。
+    # 相对角定义（使用各 IMU 的 PITCH 俯仰角）：
+    #   boom_rel_body_deg    = (boom_pitch - body_pitch)   + boom_rel_body_zero_deg
+    #   stick_rel_boom_deg   = (stick_pitch - boom_pitch)  + stick_rel_boom_zero_deg
+    #   bucket_rel_stick_deg = (bucket_pitch - stick_pitch)+ bucket_rel_stick_zero_deg
+    boom_rel_body_zero_deg: -40.0      # 大臂相对车身零位
+    stick_rel_boom_zero_deg: 120.0     # 斗杆相对大臂零位
+    bucket_rel_stick_zero_deg: 30.0   # 铲斗相对斗杆零位
+

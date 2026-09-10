@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily CANNode workspace log cleanup (keep 7 days)
+
+[Timer]
+OnCalendar=*-*-* 15:00:00
+Persistent=true
+Unit=cannnode-log-cleanup.service
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,30 @@
+danfoss_rotary_encoder_node:
+  ros__parameters:
+    # CAN 相关配置
+    # CAN 通道名称，示例：can0 / can1
+    can_interface: "can0"
+
+    # CAN 波特率（单位：bit/s），这里仅作为配置参数和日志输出使用
+    # 实际波特率配置依然建议在系统层面通过 ip link 等命令完成
+    # 默认 250K 波特率
+    can_bitrate: 250000
+
+    # 发布频率限制，单位毫秒（默认 20ms，即 50Hz）
+    publish_period_ms: 20
+
+    # 编码器数量由下面两个数组共同决定：
+    # - can_ids: 每个编码器的 CAN ID（可配置，例如 0x18FF0B15 表示 PGN 65291，源地址 0x15）
+    # - encoder_topics: 对应的 ROS2 话题名
+    # 两个数组长度必须一致，多余部分会被截断
+    can_ids: [419367701]  # 十六进制 0x18FF0B15 (PGN 65291, 源地址 0x15)
+    encoder_topics:
+      - "/rotary_encoder_angle"      # 回转编码器角度
+      # 如果需要多个编码器，可以添加：
+      # - "/rotary_encoder_angle_2"   # 第二个编码器（如果有）
+    
+    # 零点偏置值（度），用于校准编码器零点
+    # 数组长度应与 can_ids 一致，如果未配置或长度不足，则使用默认值 0.0
+    # 例如：如果编码器在零点位置时读数为 5.0°，则设置 angle1_offsets: [-5.0] 来校准
+    angle1_offsets: [90.0]  # Angle1 零点偏置值（度）
+    angle2_offsets: [0.0]  # Angle2 零点偏置值（度）
+

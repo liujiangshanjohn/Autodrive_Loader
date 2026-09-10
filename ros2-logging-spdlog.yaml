@@ -1,0 +1,36 @@
+# ROS 2 rcl_logging_spdlog 配置（Humble+）
+# 目的：
+# - 把日志时间从 epoch 秒/纳秒改成“年月日 时:分:秒.毫秒”
+# - 同时兼容 console 与 file sink（ROS_LOG_DIR 下的 *.log）
+#
+# 使用方法（示例）：
+#   export RCL_LOGGING_CONFIG_FILE=/media/nvidia/00code/cannode_ws/ros2-logging-spdlog.yaml
+#   export ROS_LOG_DIR=/media/nvidia/00code/cannode_ws/log
+#
+# 注意：不同 ROS 2 发行版对该文件 schema 支持略有差异；若启动时报 schema 错，
+# 请把报错贴出来，我再按你系统的 rcl_logging_spdlog 版本做一次精确适配。
+
+version: 1
+
+formatters:
+  default:
+    # spdlog pattern:
+    # %Y-%m-%d %H:%M:%S.%e  -> 年月日 时分秒.毫秒
+    # [%^%l%$]               -> 彩色等级（若终端支持）
+    # [%n]                   -> logger name
+    # %v                     -> message
+    pattern: "%Y-%m-%d %H:%M:%S.%e [%l] [%n]: %v"
+
+sinks:
+  console:
+    type: console
+    formatter: default
+  file:
+    type: file
+    formatter: default
+
+loggers:
+  root:
+    level: info
+    sinks: [console, file]
+

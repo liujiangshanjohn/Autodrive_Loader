@@ -1,0 +1,2 @@
+  brand: 13  # XIAO_SONG
+  can_port: "can0"
