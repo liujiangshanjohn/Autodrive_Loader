@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>loader_autonomy</name>
+  <version>0.1.0</version>
+  <description>
+    无人装载机车端自主主路径骨架：感知 → 定位 → 任务V循环 → 规划 → 控制仲裁 → /vehicle_command。
+    节点为可运行占位实现，算法与协议后续细化。
+  </description>
+  <maintainer email="user@example.com">user</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cyber_msgs</depend>
+
+  <exec_depend>camera_driver</exec_depend>
+  <exec_depend>cannode</exec_depend>
+  <exec_depend>mqtt_updater</exec_depend>
+  <exec_depend>teleoptocantransformer</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
