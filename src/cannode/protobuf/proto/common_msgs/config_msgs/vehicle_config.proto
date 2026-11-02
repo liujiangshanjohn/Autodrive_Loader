@@ -41,6 +41,7 @@ enum VehicleBrand {
   CHANG_AN = 11;
   XU_GONG = 12;
   XIAO_SONG = 13;
+  SJTU_LOADER = 14;  // 上海交大无人装载机线控协议
 }
 
 message LatencyParam {

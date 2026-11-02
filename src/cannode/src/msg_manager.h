@@ -27,6 +27,7 @@
 #include "vehicle_protocol/shantui.h"
 #include "vehicle_protocol/changan.h"
 #include "vehicle_protocol/xiaosong.h"
+#include "vehicle_protocol/loader.h"
 #include <cstring>
 // #include "vehicle_protocol/xugong.h"  // 暂时注释，因为 xugong.h 被 #if 0 禁用
 #include "common_msgs/config_msgs/vehicle_config.pb.h"

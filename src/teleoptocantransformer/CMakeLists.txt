@@ -115,12 +115,45 @@ ament_target_dependencies(teleop2can_transformer_xiaosong
 rosidl_target_interfaces(teleop2can_transformer_xiaosong
   ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
+# 添加可执行文件 - loader 版本（上海交大装载机协议）
+add_executable(teleop2can_transformer_loader 
+  src/teleop_converter_loader.cpp
+  ${PROTOBUF_SOURCES}
+)
+
+target_link_libraries(teleop2can_transformer_loader
+  ${PROTOBUF_LIBRARIES}
+)
+
+ament_target_dependencies(teleop2can_transformer_loader
+  rclcpp
+  std_msgs
+  cyber_msgs
+)
+
+rosidl_target_interfaces(teleop2can_transformer_loader
+  ${PROJECT_NAME} "rosidl_typesupport_cpp")
+
 # 安装
 install(TARGETS
   teleop2can_transformer_xugong
   teleop2can_transformer_changan
   teleop2can_transformer_xiaosong
+  teleop2can_transformer_loader
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# 安装 Python 脚本
+install(PROGRAMS
+  scripts/keyboard_loader_teleop.py
+  scripts/loader_can_monitor.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# 同时安装到 share，方便直接 python3 运行
+install(DIRECTORY scripts/
+  DESTINATION share/${PROJECT_NAME}/scripts
+  FILES_MATCHING PATTERN "*.py"
 )
 
 # 安装 launch 文件

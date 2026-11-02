@@ -63,6 +63,7 @@ endif()
 # 显式加入新增加的车辆协议源文件，避免 CMake GLOB 未重新评估导致未参与链接
 list(APPEND SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/src/vehicle_protocol/xiaosong.cc
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/vehicle_protocol/loader.cc
 )
 
 # 排除 multi_tilt_imu_node.cpp、danfoss_rotary_encoder_node.cpp 和 engine_feedback_node.cpp，

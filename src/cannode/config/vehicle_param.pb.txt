@@ -1,2 +1,2 @@
-  brand: 13  # XIAO_SONG
+  brand: 14  # SJTU_LOADER 装载机上位机通讯协议 20260721
   can_port: "can0"

@@ -386,6 +386,32 @@ void MsgManager::PublishChassisStatus_ros(const control::canbus::Chassis chassis
         vcu_feedback_msg.data = oss.str();
         vcu_feedback_pub->publish(vcu_feedback_msg);
     }
+
+    // 装载机协议反馈（前进/后退/转向电流等）
+    auto* loader_parser = dynamic_cast<LoaderCANParser*>(chassisCanHandler.get());
+    if (loader_parser) {
+        std_msgs::msg::String vcu_feedback_msg;
+        std::ostringstream oss;
+        oss << std::boolalpha;
+        oss << "{";
+        oss << "\"protocol\":\"sjtu_loader\",";
+        oss << "\"fb_forward\":" << loader_parser->get_fb_forward() << ",";
+        oss << "\"fb_backward\":" << loader_parser->get_fb_backward() << ",";
+        oss << "\"out_forward\":" << loader_parser->get_fb_out_forward() << ",";
+        oss << "\"out_backward\":" << loader_parser->get_fb_out_backward() << ",";
+        oss << "\"auto_mode\":" << loader_parser->get_auto_mode() << ",";
+        oss << "\"throttle_out\":" << loader_parser->get_throttle_out() << ",";
+        oss << "\"brake_out\":" << loader_parser->get_brake_out() << ",";
+        oss << "\"left_steer_current_mA\":" << loader_parser->get_left_steer_current() << ",";
+        oss << "\"right_steer_current_mA\":" << loader_parser->get_right_steer_current() << ",";
+        oss << "\"boom_angle_x_deg\":" << loader_parser->get_boom_angle_x() << ",";
+        oss << "\"bucket_angle_x_deg\":" << loader_parser->get_bucket_angle_x() << ",";
+        oss << "\"vcu_communication_timeout\":"
+            << loader_parser->get_vcu_communication_timeout(1.0);
+        oss << "}";
+        vcu_feedback_msg.data = oss.str();
+        vcu_feedback_pub->publish(vcu_feedback_msg);
+    }
     
     // LOG_I("front_angle={}, steering={}, vehicle_mode={}, driving_mode={}, walk_motor_speed={}, speed_mps={}", 
     //       message.front_rear_angle, chassisptmsg.steering_percentage(), message.vehicle_mode,
@@ -476,6 +502,9 @@ void MsgManager::cannodeCreateInstance() {
       break;
     case 13:  // XIAO_SONG
       chassisCanHandler = std::make_shared<XiaosongCANParser>(chassis_can_port);
+      break;
+    case 14:  // SJTU_LOADER
+      chassisCanHandler = std::make_shared<LoaderCANParser>(chassis_can_port);
       break;
     default:
       chassisCanHandler = std::make_shared<ShantuiCANParser>(chassis_can_port);
