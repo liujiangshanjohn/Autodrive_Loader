@@ -406,6 +406,11 @@ void MsgManager::PublishChassisStatus_ros(const control::canbus::Chassis chassis
         oss << "\"right_steer_current_mA\":" << loader_parser->get_right_steer_current() << ",";
         oss << "\"boom_angle_x_deg\":" << loader_parser->get_boom_angle_x() << ",";
         oss << "\"bucket_angle_x_deg\":" << loader_parser->get_bucket_angle_x() << ",";
+        oss << "\"wireless_estop\":" << loader_parser->get_wireless_estop() << ",";
+        oss << "\"steer_angle_deg\":" << loader_parser->get_steer_angle_deg() << ",";
+        oss << "\"speed_kmh\":" << loader_parser->get_speed_kmh() << ",";
+        oss << "\"system_voltage\":" << loader_parser->get_system_voltage() << ",";
+        oss << "\"controller_fault_code\":" << static_cast<int>(loader_parser->get_controller_fault_code()) << ",";
         oss << "\"vcu_communication_timeout\":"
             << loader_parser->get_vcu_communication_timeout(1.0);
         oss << "}";

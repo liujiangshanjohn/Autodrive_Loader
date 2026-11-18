@@ -38,12 +38,18 @@ def pct_to_u16(pct_0_100: float) -> int:
     return max(0, min(1000, int(round(pct_0_100 * 10.0))))
 
 
+def unit_to_valve(unit_0_1: float) -> int:
+    if unit_0_1 <= 0.0:
+        return 0
+    return int(round(400.0 + 300.0 * max(0.0, min(1.0, unit_0_1))))
+
+
 def axis_to_pair(axis: float) -> tuple[int, int]:
     axis = clamp11(axis)
     if axis > 0:
-        return int(round(axis * 1000)), 0
+        return unit_to_valve(axis), 0
     if axis < 0:
-        return 0, int(round((-axis) * 1000))
+        return 0, unit_to_valve(-axis)
     return 0, 0
 
 
@@ -177,7 +183,7 @@ def run_demo() -> None:
     for name, payload in seq:
         print_frame(name, payload)
         time.sleep(0.15)
-    print('\n演示结束。接 CAN 卡后请走完整链路（见 README_LOADER.md）。')
+    print('\n演示结束。协议 20261102：下发 0x100/0x101/0x102。接 CAN 后见 README.md。')
 
 
 def run_ros_demo() -> None:

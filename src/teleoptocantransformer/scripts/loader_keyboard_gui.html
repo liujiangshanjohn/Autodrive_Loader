@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>Loader Keyboard Teleop 20261102</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1a2332; color: #e8eef7;
+    font-family: "Segoe UI", "Noto Sans SC", sans-serif; overflow: hidden; }
+  .wrap { display: flex; flex-direction: column; height: 100%; padding: 12px 16px; box-sizing: border-box; }
+  .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .hint { color: #8fa3bf; font-size: 13px; }
+  .body { display: flex; gap: 12px; flex: 1; min-height: 0; }
+  .left { flex: 1; background: #243044; border: 1px solid #3a4d66; border-radius: 6px; display: flex; flex-direction: column; }
+  .right { width: 360px; display: flex; flex-direction: column; gap: 8px; }
+  .box { background: #243044; border: 1px solid #3a4d66; border-radius: 6px; }
+  .cap { padding: 6px 10px; color: #b8c7db; font-size: 13px; }
+  canvas { display: block; }
+  #topCanvas { width: 100%; flex: 1; background: #0f1724; }
+  #sideCanvas { width: 340px; height: 220px; margin: 0 10px 10px; background: #0f1724; }
+  pre { margin: 0 10px 10px; padding: 10px; background: #182233; color: #d7e3f4; font-size: 12px;
+    white-space: pre-wrap; flex: 1; overflow: auto; border-radius: 4px; }
+  .btns { margin-top: 8px; display: flex; gap: 8px; }
+  button { border: 0; padding: 8px 14px; border-radius: 4px; color: #fff; cursor: pointer; }
+  .estop { background: #8b2e2e; }
+  .n { background: #2e4a6e; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>无人装载机 · 键盘遥控（协议 20261102）</h1>
+    <div class="hint">点一下本页再按键。I/K、J/L 改关节角目标；阀 400~700 驱动油缸速度，用倾角换关节角闭环。</div>
+  </div>
+  <div class="body">
+    <div class="left">
+      <div class="cap">俯视图（前进/转向）</div>
+      <canvas id="topCanvas"></canvas>
+    </div>
+    <div class="right">
+      <div class="box">
+        <div class="cap">侧视图（大臂/铲斗）</div>
+        <canvas id="sideCanvas" width="340" height="220"></canvas>
+      </div>
+      <div class="box" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+        <div class="cap">控制 / CAN 预览</div>
+        <pre id="status"></pre>
+      </div>
+    </div>
+  </div>
+  <div class="btns">
+    <button class="estop" onclick="estop()">急停 (E)</button>
+    <button class="n" onclick="neutral()">空档复位 (N)</button>
+  </div>
+</div>
+<script>
+const keys = new Set();
+let horn = false, light = false, isEstop = false;
+let x = 280, y = 220, yaw = -Math.PI / 2, art = 0;
+let boom = 0.35, bucket = 0.2, wheel = 0;
+let last = performance.now();
+const VALVE_DEAD=400, VALVE_MAX=700, VALVE_SPAN=300;
+const BOOM_S=[0.05,0.85], BOOM_A=[5,62], BUCKET_S=[0.05,0.60], BUCKET_A=[-18,48];
+const BOOM_VMAX=0.12, BUCKET_VMAX=0.10, KP=0.12, ADB=0.5, JOG=22;
+let boomStroke=0.28, bucketStroke=0.22, boomTgt=22, bucketTgt=12;
+let hydro={};
+
+function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi,v)); }
+function lerp(x,a,b,c,d){ const t=clamp((x-a)/(b-a),0,1); return c+t*(d-c); }
+function unitValve(u){ return u<=0?0:VALVE_DEAD+VALVE_SPAN*clamp(u,0,1); }
+function valveSpeed(valve, vmax){ return valve<VALVE_DEAD?0:((clamp(valve,VALVE_DEAD,VALVE_MAX)-VALVE_DEAD)/VALVE_SPAN)*vmax; }
+function errValve(e){ if(Math.abs(e)<ADB) return 0; const mag=unitValve(clamp(Math.abs(e)*KP,0,1)); return e>0?mag:-mag; }
+function pctU16(p) { return Math.max(0, Math.min(1000, Math.round(p * 10))); }
+function hex(bytes) { return [...bytes].map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
+function u16le(v) { v=Math.max(0,Math.min(1000,Math.round(v))); return [v & 0xff, (v >> 8) & 0xff]; }
+
+function teleop() {
+  if (isEstop) return {gear:'N', throttle:0, brake:1, steering:0, boom:0, bucket:0, horn:false, light, emergency_stop:true};
+  let gear='N', throttle=0;
+  if (keys.has('w')) { gear='D'; throttle=0.4; }
+  else if (keys.has('s')) { gear='R'; throttle=0.4; }
+  let steering=0;
+  if (keys.has('a')) steering=-0.55;
+  else if (keys.has('d')) steering=0.55;
+  const boomA = keys.has('i') ? 0.6 : (keys.has('k') ? -0.6 : 0);
+  const bucketA = keys.has('j') ? 0.6 : (keys.has('l') ? -0.6 : 0);
+  const brake = keys.has(' ') ? 0.6 : 0;
+  return {gear, throttle, brake, steering, boom:boomA, bucket:bucketA, horn, light, emergency_stop:false};
+}
+
+function encode(t) {
+  let b0=0;
+  if (!t.emergency_stop) {
+    if (t.gear==='D') b0|=1;
+    if (t.gear==='R') b0|=2;
+    if (t.horn) b0|=4;
+    if (t.light) b0|=8;
+  }
+  const f100 = [b0,0,0,0,0,0,0,0x80];
+  let thr=0, brk=0, left=0, right=0, bu=0, bd=0, ku=0, kd=0;
+  if (t.emergency_stop) { brk=1000; }
+  else {
+    thr = pctU16(t.throttle*100); brk = pctU16(t.brake*100);
+    if (t.steering>0) right = pctU16(t.steering*100);
+    else if (t.steering<0) left = pctU16((-t.steering)*100);
+    bu = hydro.bu||0; bd = hydro.bd||0; ku = hydro.ku||0; kd = hydro.kd||0;
+  }
+  const f101 = [...u16le(thr), ...u16le(brk), ...u16le(left), ...u16le(right)];
+  const f102 = [...u16le(bu), ...u16le(bd), ...u16le(ku), ...u16le(kd)];
+  return {
+    f100: hex(f100), f101: hex(f101), f102: hex(f102),
+    explain: `前进=${b0&1} 后退=${(b0>>1)&1} 油门=${thr} 刹车=${brk} 左转=${left} 右转=${right} 大臂${bu}/${bd} 铲斗${ku}/${kd}`
+  };
+}
+
+function estop(){ isEstop=true; keys.clear(); }
+function neutral(){ isEstop=false; keys.clear(); }
+
+window.addEventListener('keydown', e => {
+  const k = e.key.length===1 ? e.key.toLowerCase() : e.key;
+  if (['w','a','s','d','i','k','j','l','h','t','e','n',' '].includes(k) || k===' ') e.preventDefault();
+  if (k==='h' && !keys.has('h')) horn = !horn;
+  if (k==='t' && !keys.has('t')) light = !light;
+  if (k==='e') { estop(); return; }
+  if (k==='n') { neutral(); return; }
+  if (['w','s','a','d','i','k','j','l',' '].includes(k)) {
+    isEstop=false; keys.add(k);
+    const r={w:'s',s:'w',a:'d',d:'a',i:'k',k:'i',j:'l',l:'j'};
+    if (r[k]) keys.delete(r[k]);
+  }
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.length===1 ? e.key.toLowerCase() : e.key;
+  keys.delete(k);
+});
+
+const topC = document.getElementById('topCanvas');
+const sideC = document.getElementById('sideCanvas');
+const status = document.getElementById('status');
+
+function resize() {
+  const r = topC.getBoundingClientRect();
+  topC.width = Math.max(200, r.width);
+  topC.height = Math.max(200, r.height);
+}
+window.addEventListener('resize', resize);
+
+function rot(px,py,ang,ox,oy){
+  const c=Math.cos(ang), s=Math.sin(ang);
+  return [ox+px*c-py*s, oy+px*s+py*c];
+}
+function poly(ctx, pts, fill, stroke){
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath(); ctx.fillStyle=fill; ctx.fill(); ctx.strokeStyle=stroke; ctx.lineWidth=2; ctx.stroke();
+}
+
+function drawTop() {
+  const ctx = topC.getContext('2d');
+  const w=topC.width, h=topC.height;
+  ctx.fillStyle='#0f1724'; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle='#1a2740';
+  for (let i=0;i<w;i+=40){ ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,h); ctx.stroke(); }
+  for (let j=0;j<h;j+=40){ ctx.beginPath(); ctx.moveTo(0,j); ctx.lineTo(w,j); ctx.stroke(); }
+  const rear=[[-36,-22],[8,-22],[8,22],[-36,22]].map(p=>rot(p[0],p[1],yaw,x,y));
+  poly(ctx, rear, '#3d6b9c', '#9ec5ef');
+  const fa=yaw+art;
+  const [hx,hy]=rot(10,0,yaw,x,y);
+  const front=[[0,-20],[34,-20],[34,20],[0,20]].map(p=>rot(p[0],p[1],fa,hx,hy));
+  poly(ctx, front, '#4a7cae', '#b7d6f5');
+  const bucketPts=[[34,-16],[52,-10],[52,10],[34,16]].map(p=>rot(p[0],p[1],fa,hx,hy));
+  poly(ctx, bucketPts, '#c4a35a', '#f0d78c');
+  const [nx,ny]=rot(20,0,fa,hx,hy);
+  ctx.beginPath(); ctx.arc(nx,ny,4,0,6.28); ctx.fillStyle='#7dffb3'; ctx.fill();
+  ctx.fillStyle='#6f839e'; ctx.fillText('俯视 · 黄=铲斗  蓝=车体  绿点=车头', 10, 16);
+}
+
+function drawSide() {
+  const ctx = sideC.getContext('2d');
+  const w=340,h=220;
+  ctx.fillStyle='#0f1724'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='#1e2a1c'; ctx.fillRect(0,170,w,h);
+  ctx.strokeStyle='#4a6a3a'; ctx.beginPath(); ctx.moveTo(0,170); ctx.lineTo(w,170); ctx.stroke();
+  ctx.fillStyle='#2a2a2a'; ctx.beginPath(); ctx.arc(90,165,20,0,6.28); ctx.fill();
+  ctx.beginPath(); ctx.arc(170,165,20,0,6.28); ctx.fill();
+  ctx.strokeStyle='#aaa'; ctx.lineWidth=2;
+  for (const ox of [90,170]) {
+    ctx.beginPath(); ctx.moveTo(ox,165);
+    ctx.lineTo(ox+14*Math.cos(wheel), 165+14*Math.sin(wheel)); ctx.stroke();
+  }
+  ctx.fillStyle='#3d6b9c'; ctx.strokeStyle='#9ec5ef'; ctx.lineWidth=2;
+  ctx.fillRect(60,110,140,45); ctx.strokeRect(60,110,140,45);
+  ctx.fillStyle='#2f5478'; ctx.fillRect(150,80,45,35); ctx.strokeRect(150,80,45,35);
+  const bang=-boom, bx=185+90*Math.cos(bang), by=125+90*Math.sin(bang);
+  ctx.strokeStyle='#d8b56a'; ctx.lineWidth=8; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(185,125); ctx.lineTo(bx,by); ctx.stroke();
+  const kang=bang+bucket;
+  const p1=[bx+8*Math.cos(kang+1.2), by+8*Math.sin(kang+1.2)];
+  const p2=[bx+40*Math.cos(kang), by+40*Math.sin(kang)];
+  const p3=[bx+8*Math.cos(kang-1.2), by+8*Math.sin(kang-1.2)];
+  poly(ctx, [p1,p2,p3], '#c4a35a', '#f0d78c');
+  ctx.fillStyle='#6f839e'; ctx.fillText('侧视 · I/K 大臂  J/L 铲斗', 10, 16);
+}
+
+function tick(now) {
+  const dt = Math.min(0.05, (now-last)/1000); last=now;
+  const t = teleop();
+  const speed = t.emergency_stop ? 0 : (t.gear==='D'? 90: t.gear==='R'? -70:0) * t.throttle / 0.4;
+  if (t.steering) art += (-t.steering)*1.6*dt;
+  art *= 1 - Math.min(1, dt*1.2);
+  art = Math.max(-0.6, Math.min(0.6, art));
+  yaw += art * 1.4 * dt * Math.sign(speed || 1) * (speed?1:0);
+  x += Math.cos(yaw)*speed*dt; y += Math.sin(yaw)*speed*dt;
+  const w=topC.width, h=topC.height, m=40;
+  if (x<-m) x=w+m; if (x>w+m) x=-m; if (y<-m) y=h+m; if (y>h+m) y=-m;
+  if (t.emergency_stop) {
+    hydro={bu:0,bd:0,ku:0,kd:0,bv:0,kv:0};
+  } else {
+    boomTgt = clamp(boomTgt + (t.boom>0?1:t.boom<0?-1:0)*JOG*dt, BOOM_A[0], BOOM_A[1]);
+    bucketTgt = clamp(bucketTgt + (t.bucket>0?1:t.bucket<0?-1:0)*JOG*dt, BUCKET_A[0], BUCKET_A[1]);
+    const bang = lerp(boomStroke, BOOM_S[0], BOOM_S[1], BOOM_A[0], BOOM_A[1]);
+    const kang = lerp(bucketStroke, BUCKET_S[0], BUCKET_S[1], BUCKET_A[0], BUCKET_A[1]);
+    const bv = errValve(boomTgt-bang), kv = errValve(bucketTgt-kang);
+    const bvel = valveSpeed(Math.abs(bv), BOOM_VMAX)*(bv>=0?1:-1);
+    const kvel = valveSpeed(Math.abs(kv), BUCKET_VMAX)*(kv>=0?1:-1);
+    boomStroke = clamp(boomStroke + bvel*dt, BOOM_S[0], BOOM_S[1]);
+    bucketStroke = clamp(bucketStroke + kvel*dt, BUCKET_S[0], BUCKET_S[1]);
+    hydro={bu:bv>0?bv:0, bd:bv<0?-bv:0, ku:kv>0?kv:0, kd:kv<0?-kv:0, bv:bvel, kv:kvel, bang, kang};
+  }
+  boom = lerp(boomStroke, BOOM_S[0], BOOM_S[1], 0.05, 1.1);
+  bucket = lerp(bucketStroke, BUCKET_S[0], BUCKET_S[1], -0.3, 0.9);
+  if (Math.abs(t.steering)<0.05) art *= 1-Math.min(1,dt*4);
+  if (t.gear!=='N' && t.throttle>0) wheel += dt*6*Math.sign(speed||1);
+  drawTop(); drawSide();
+  const can = encode(t);
+  const ks = [...keys].map(k=>k===' '?'Space':k).sort().join(' ') || '(无)';
+  const bang = hydro.bang!=null?hydro.bang:lerp(boomStroke, BOOM_S[0], BOOM_S[1], BOOM_A[0], BOOM_A[1]);
+  const kang = hydro.kang!=null?hydro.kang:lerp(bucketStroke, BUCKET_S[0], BUCKET_S[1], BUCKET_A[0], BUCKET_A[1]);
+  status.textContent =
+    `按键: ${ks}\n档位: ${t.gear}   油门: ${t.throttle.toFixed(2)}   刹车: ${t.brake.toFixed(2)}\n`+
+    `倾角→关节角  大臂 ${bang.toFixed(1)}°(目标${boomTgt.toFixed(1)}°)  铲斗 ${kang.toFixed(1)}°(目标${bucketTgt.toFixed(1)}°)\n`+
+    `油缸 大臂 ${boomStroke.toFixed(3)}m ${(hydro.bv||0)>=0?'+':''}${(hydro.bv||0).toFixed(3)}m/s  铲斗 ${bucketStroke.toFixed(3)}m ${(hydro.kv||0)>=0?'+':''}${(hydro.kv||0).toFixed(3)}m/s\n`+
+    `阀400~700  大臂升/落 ${Math.round(hydro.bu||0)}/${Math.round(hydro.bd||0)}  铲斗升/落 ${Math.round(hydro.ku||0)}/${Math.round(hydro.kd||0)}\n`+
+    `喇叭: ${t.horn?'开':'关'}   灯: ${t.light?'开':'关'}   急停: ${t.emergency_stop?'是':'否'}\n\n`+
+    `CAN 预览 0x102 阀开度:\n  0x100: ${can.f100}\n  0x101: ${can.f101}\n  0x102: ${can.f102}\n  ${can.explain}\n`;
+  requestAnimationFrame(tick);
+}
+resize();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

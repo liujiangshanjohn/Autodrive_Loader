@@ -1,12 +1,12 @@
 /**
  * 装载机 teleop → ControlCommand 转换
- * 协议：装载机_上位机通讯协议_20260721
+ * 协议：装载机_上位机通讯协议_20261102
  *
  * JSON (/controls/teleop) → protobuf (/vehicle_command)
  * - gear: "N"/"D"/"R" → 前进/后退开关
  * - throttle/brake: [0,1] → [0,100]%
  * - steering: [-1,1] → steering_target [-100,100]%
- * - boom/bucket: [-1,1] → 大臂/铲斗升落设定值 0~1000
+ * - boom/bucket: [-1,1] → 比例阀 0 或 400~700（对应油缸线速度；角度闭环在仿真/上层）
  * - horn/light/emergency_stop
  */
 
@@ -75,7 +75,7 @@ class Teleop2CanTransformerLoader : public rclcpp::Node {
         100ms, std::bind(&Teleop2CanTransformerLoader::check_timeout, this));
 
     RCLCPP_INFO(this->get_logger(),
-                "teleop2can_transformer_loader 已启动（SJTU 装载机协议）");
+                "teleop2can_transformer_loader 已启动（SJTU 装载机协议 20261102）");
   }
 
  private:
@@ -93,16 +93,27 @@ class Teleop2CanTransformerLoader : public rclcpp::Node {
     return (value + deadzone) / (1.0 - deadzone);
   }
 
-  /** [-1,1] 有符号轴 → 正方向 setpoint A / 负方向 setpoint B，范围 0~1000 */
+  /** 有效阀带 400~700：低于 400 油缸不动。u∈(0,1] → 400+300u */
+  static double unit_to_valve(double u) {
+    if (u <= 0.0) {
+      return 0.0;
+    }
+    if (u > 1.0) {
+      u = 1.0;
+    }
+    return 400.0 + 300.0 * u;
+  }
+
+  /** [-1,1] → 升/落阀开度（互斥），0 或 400~700 */
   static void axis_to_pair(double axis, double deadzone, double *pos_out, double *neg_out) {
     axis = clamp(axis, -1.0, 1.0);
     axis = apply_deadzone(axis, deadzone);
     if (axis > 0.0) {
-      *pos_out = axis * 1000.0;
+      *pos_out = unit_to_valve(axis);
       *neg_out = 0.0;
     } else if (axis < 0.0) {
       *pos_out = 0.0;
-      *neg_out = (-axis) * 1000.0;
+      *neg_out = unit_to_valve(-axis);
     } else {
       *pos_out = 0.0;
       *neg_out = 0.0;
@@ -251,7 +262,7 @@ class Teleop2CanTransformerLoader : public rclcpp::Node {
       steer = apply_deadzone(steer, steering_deadzone_);
       cmd.set_steering_target(steer * 100.0);
 
-      // 大臂：+升 / -落 → 0~1000
+      // 大臂：+升 / -落 → 阀 400~700（油缸速度）
       double boom = data.count("boom") ? SimpleJsonParser::get_double(data["boom"]) : 0.0;
       double boom_up = 0.0, boom_down = 0.0;
       axis_to_pair(boom, boom_deadzone_, &boom_up, &boom_down);

@@ -1,10 +1,10 @@
 #pragma once
 
 /**
- * 上海交大无人装载机线控协议（装载机_上位机通讯协议_20260721）
+ * 上海交大无人装载机线控协议（装载机_上位机通讯协议_20261102）
  * - CAN 标准帧，波特率 250kbps，周期 50ms
- * - 上位机→装载机: 0x100 / 0x101 / 0x102
- * - 装载机→上位机: 0x200 ~ 0x205（反馈）
+ * - 上位机→装载机: 0x100 / 0x101 / 0x102（0x103~0x105 预留）
+ * - 装载机→上位机: 0x200 ~ 0x209
  */
 
 #include <atomic>
@@ -30,7 +30,11 @@ enum LoaderCanProtoId {
   LD_FB_PRESSURE1  = 0x202,  // 压力1
   LD_FB_PRESSURE2  = 0x203,  // 压力2 + 油门/刹车输出
   LD_FB_CURRENT1   = 0x204,  // 阀电流1
-  LD_FB_CURRENT2   = 0x205,  // 阀电流2 + 系统电压
+  LD_FB_CURRENT2   = 0x205,  // 阀电流2 + 系统电压 + 转向角
+  LD_FB_SPEED      = 0x206,  // 行驶速度 + 故障码
+  LD_FB_ANGLE_RAW  = 0x207,  // 倾角原始值
+  LD_FB_PRESS_RAW1 = 0x208,  // 压力传感器原始值1
+  LD_FB_PRESS_RAW2 = 0x209,  // 压力/速度/电子尺原始值
 };
 
 #pragma pack(push, 1)
@@ -72,9 +76,12 @@ typedef struct LoaderFbStatus {
   uint8_t fb_light : 1;
   uint8_t reserved0 : 4;
   // byte1: 开关输入反馈
-  uint8_t auto_mode : 1;    // 0手动 1自动
-  uint8_t reserved_sw1 : 1;
-  uint8_t reserved1 : 6;
+  uint8_t auto_mode : 1;       // 0手动 1自动
+  uint8_t wireless_estop : 1;  // 无线急停
+  uint8_t brake_sw1 : 1;
+  uint8_t brake_sw2 : 1;
+  uint8_t throttle_sw : 1;
+  uint8_t reserved1 : 3;
   // byte2: 输出反馈
   uint8_t out_oil_switch : 1;
   uint8_t out_forward : 1;
@@ -130,8 +137,35 @@ typedef struct LoaderFbCurrent2 {
   uint16_t bucket_up_current;
   uint16_t bucket_down_current;
   uint16_t system_voltage;        // 0~32000 → 0~32.000 V
-  uint16_t reserved;
+  uint16_t steer_angle;           // 0~36000 → -180.00~+180.00°（偏移 180°；正=左摆）
 } LD_FbCurrent2;
+
+typedef struct LoaderFbSpeed {
+  uint8_t speed;                  // 0~255 → 0~25.5 km/h
+  uint8_t fault_code;
+  uint8_t reserved[6];
+} LD_FbSpeed;
+
+typedef struct LoaderFbAngleRaw {
+  uint16_t boom_x;
+  uint16_t boom_y;
+  uint16_t bucket_x;
+  uint16_t bucket_y;
+} LD_FbAngleRaw;
+
+typedef struct LoaderFbPressRaw1 {
+  uint16_t left_steer_ua;
+  uint16_t right_steer_ua;
+  uint16_t boom_up_ua;
+  uint16_t boom_down_ua;
+} LD_FbPressRaw1;
+
+typedef struct LoaderFbPressRaw2 {
+  uint16_t bucket_up_ua;
+  uint16_t bucket_down_ua;
+  uint16_t speed_raw;
+  uint16_t steer_ruler_mv;        // 0~10000 mV
+} LD_FbPressRaw2;
 
 #pragma pack(pop)
 
@@ -166,6 +200,11 @@ class LoaderCANParser : public ChassisCan {
   uint16_t get_right_steer_current() const { return fb_right_steer_current_.load(); }
   double get_boom_angle_x() const { return fb_boom_x_deg_.load(); }
   double get_bucket_angle_x() const { return fb_bucket_x_deg_.load(); }
+  bool get_wireless_estop() const { return fb_wireless_estop_.load(); }
+  double get_steer_angle_deg() const { return fb_steer_angle_deg_.load(); }
+  double get_speed_kmh() const { return fb_speed_kmh_.load(); }
+  uint8_t get_controller_fault_code() const { return fb_fault_code_.load(); }
+  double get_system_voltage() const { return fb_system_voltage_.load(); }
   bool get_vcu_communication_timeout(double timeout_sec) const;
 
  private:
@@ -179,9 +218,14 @@ class LoaderCANParser : public ChassisCan {
   void handle0x203(struct Canframe *recvCanFrame);
   void handle0x204(struct Canframe *recvCanFrame);
   void handle0x205(struct Canframe *recvCanFrame);
+  void handle0x206(struct Canframe *recvCanFrame);
+  void handle0x207(struct Canframe *recvCanFrame);
+  void handle0x208(struct Canframe *recvCanFrame);
+  void handle0x209(struct Canframe *recvCanFrame);
 
   static uint16_t clamp_u16(double v, double max_v);
-  static double decode_signed_angle_deg(uint16_t raw);  // 0.01°
+  static double decode_signed_angle_deg(uint16_t raw);  // int16 * 0.01°
+  static double decode_steer_angle_deg(uint16_t raw);   // 0~36000 → ±180°
 
   void publishSentFrame(uint32_t can_id, const uint8_t *data);
 
@@ -205,6 +249,11 @@ class LoaderCANParser : public ChassisCan {
   std::atomic<uint16_t> fb_right_steer_current_{0};
   std::atomic<double> fb_boom_x_deg_{0.0};
   std::atomic<double> fb_bucket_x_deg_{0.0};
+  std::atomic<bool> fb_wireless_estop_{false};
+  std::atomic<double> fb_steer_angle_deg_{0.0};
+  std::atomic<double> fb_speed_kmh_{0.0};
+  std::atomic<uint8_t> fb_fault_code_{0};
+  std::atomic<double> fb_system_voltage_{0.0};
 
   mutable std::mutex fb_time_mutex_;
   std::chrono::steady_clock::time_point last_fb_time_;

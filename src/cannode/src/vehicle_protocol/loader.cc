@@ -12,7 +12,7 @@ constexpr int kSendPeriodDiv = 5;        // 10ms 线程 × 5 = 50ms
 
 LoaderCANParser::LoaderCANParser(std::string canPort) : ChassisCan(canPort) {
   initFuncMap();
-  LOG_I("=================LoaderCANParser (SJTU 装载机协议)=================");
+  LOG_I("=================LoaderCANParser (SJTU 装载机协议 20261102)=================");
 }
 
 LoaderCANParser::~LoaderCANParser() = default;
@@ -30,6 +30,14 @@ void LoaderCANParser::initFuncMap() {
       static_cast<void (ChassisCan::*)(Canframe *)>(&LoaderCANParser::handle0x204);
   handleChassisCanFuncMap[LD_FB_CURRENT2] =
       static_cast<void (ChassisCan::*)(Canframe *)>(&LoaderCANParser::handle0x205);
+  handleChassisCanFuncMap[LD_FB_SPEED] =
+      static_cast<void (ChassisCan::*)(Canframe *)>(&LoaderCANParser::handle0x206);
+  handleChassisCanFuncMap[LD_FB_ANGLE_RAW] =
+      static_cast<void (ChassisCan::*)(Canframe *)>(&LoaderCANParser::handle0x207);
+  handleChassisCanFuncMap[LD_FB_PRESS_RAW1] =
+      static_cast<void (ChassisCan::*)(Canframe *)>(&LoaderCANParser::handle0x208);
+  handleChassisCanFuncMap[LD_FB_PRESS_RAW2] =
+      static_cast<void (ChassisCan::*)(Canframe *)>(&LoaderCANParser::handle0x209);
 }
 
 uint16_t LoaderCANParser::clamp_u16(double v, double max_v) {
@@ -46,6 +54,14 @@ double LoaderCANParser::decode_signed_angle_deg(uint16_t raw) {
   // 协议：0~65535 表示 -32768~32767，精度 0.01°
   const int16_t signed_raw = static_cast<int16_t>(raw);
   return static_cast<double>(signed_raw) * 0.01;
+}
+
+double LoaderCANParser::decode_steer_angle_deg(uint16_t raw) {
+  // 0x205：0~36000 → -180.00~+180.00°（偏移 180°）。正=左摆，负=右摆，0=正前方
+  if (raw > 36000) {
+    raw = 36000;
+  }
+  return static_cast<double>(raw) * 0.01 - 180.0;
 }
 
 void LoaderCANParser::publishSentFrame(uint32_t can_id, const uint8_t *data) {
@@ -237,6 +253,7 @@ void LoaderCANParser::handle0x200(struct Canframe *recvCanFrame) {
   fb_out_forward_.store(st.out_forward != 0);
   fb_out_backward_.store(st.out_backward != 0);
   fb_auto_mode_.store(st.auto_mode != 0);
+  fb_wireless_estop_.store(st.wireless_estop != 0);
 
   {
     std::lock_guard<std::mutex> lk(fb_time_mutex_);
@@ -294,22 +311,51 @@ void LoaderCANParser::handle0x204(struct Canframe *recvCanFrame) {
   std::memcpy(&c, recvCanFrame->frame.data, sizeof(c));
   fb_left_steer_current_.store(c.left_steer_current);
   fb_right_steer_current_.store(c.right_steer_current);
+}
 
-  // 用左右转向电流差近似转向百分比反馈
-  double left = static_cast<double>(c.left_steer_current);
-  double right = static_cast<double>(c.right_steer_current);
-  double steer_pct = 0.0;
-  if (right > left) {
-    steer_pct = std::min(100.0, right / 20.0);  // 0~2000mA → 粗映射
-  } else if (left > right) {
-    steer_pct = -std::min(100.0, left / 20.0);
+void LoaderCANParser::handle0x205(struct Canframe *recvCanFrame) {
+  LD_FbCurrent2 c{};
+  std::memcpy(&c, recvCanFrame->frame.data, sizeof(c));
+  const double voltage = static_cast<double>(c.system_voltage) * 0.001;
+  const double steer_deg = decode_steer_angle_deg(c.steer_angle);
+  fb_system_voltage_.store(voltage);
+  fb_steer_angle_deg_.store(steer_deg);
+
+  {
+    std::lock_guard<std::mutex> lk(fb_time_mutex_);
+    last_fb_time_ = std::chrono::steady_clock::now();
+    last_fb_time_inited_ = true;
   }
 
   std::lock_guard<std::mutex> lk(vehicleStatusMutex);
-  chassisProtoMsg.set_steering_percentage(steer_pct);
+  // ±180° → ±100%；协议正值=左摆
+  chassisProtoMsg.set_steering_percentage(std::max(-100.0, std::min(100.0, steer_deg / 1.8)));
 }
 
-void LoaderCANParser::handle0x205(struct Canframe * /*recvCanFrame*/) {
+void LoaderCANParser::handle0x206(struct Canframe *recvCanFrame) {
+  LD_FbSpeed sp{};
+  std::memcpy(&sp, recvCanFrame->frame.data, sizeof(sp));
+  const double kmh = static_cast<double>(sp.speed) * 0.1;
+  fb_speed_kmh_.store(kmh);
+  fb_fault_code_.store(sp.fault_code);
+
+  std::lock_guard<std::mutex> lk(vehicleStatusMutex);
+  chassisProtoMsg.set_speed_mps(kmh / 3.6);
+}
+
+void LoaderCANParser::handle0x207(struct Canframe * /*recvCanFrame*/) {
+  std::lock_guard<std::mutex> lk(fb_time_mutex_);
+  last_fb_time_ = std::chrono::steady_clock::now();
+  last_fb_time_inited_ = true;
+}
+
+void LoaderCANParser::handle0x208(struct Canframe * /*recvCanFrame*/) {
+  std::lock_guard<std::mutex> lk(fb_time_mutex_);
+  last_fb_time_ = std::chrono::steady_clock::now();
+  last_fb_time_inited_ = true;
+}
+
+void LoaderCANParser::handle0x209(struct Canframe * /*recvCanFrame*/) {
   std::lock_guard<std::mutex> lk(fb_time_mutex_);
   last_fb_time_ = std::chrono::steady_clock::now();
   last_fb_time_inited_ = true;

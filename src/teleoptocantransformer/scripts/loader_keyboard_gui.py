@@ -6,8 +6,8 @@
 运行：
   python3 src/teleoptocantransformer/scripts/loader_keyboard_gui.py
 
-窗口获得焦点后按键，画面中装载机会前进/后退/转向，大臂铲斗会抬落。
-可选：加 --ros 同时发布 /controls/teleop
+默认在 Windows 浏览器打开（WSL 任务栏企鹅图标点不开 Tk 窗口）。
+加 --tk 才用本机 Tk。加 --ros 同时发布 /controls/teleop（走 Tk）。
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import json
 import math
 import os
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -24,6 +25,11 @@ import tkinter as tk
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageTk
+
+_SCRIPTS = Path(__file__).resolve().parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+from loader_hydro import HydroPlant
 
 
 def _find_cjk_font_path() -> Path | None:
@@ -138,11 +144,17 @@ def pct_to_u16(pct_0_100: float) -> int:
     return max(0, min(1000, int(round(pct_0_100 * 10.0))))
 
 
+def unit_to_valve(unit_0_1: float) -> int:
+    if unit_0_1 <= 0.0:
+        return 0
+    return int(round(400.0 + 300.0 * max(0.0, min(1.0, unit_0_1))))
+
+
 def axis_to_pair(axis: float) -> tuple[int, int]:
     if axis > 0:
-        return int(round(axis * 1000)), 0
+        return unit_to_valve(axis), 0
     if axis < 0:
-        return 0, int(round((-axis) * 1000))
+        return 0, unit_to_valve(-axis)
     return 0, 0
 
 
@@ -177,8 +189,14 @@ def encode_can(teleop: dict, heartbeat: bool = True) -> dict[str, str]:
             left, right = pct_to_u16((-steer) * 100.0), 0
         else:
             left = right = 0
-        bu, bd = axis_to_pair(float(teleop['boom']))
-        ku, kd = axis_to_pair(float(teleop['bucket']))
+        if teleop.get('boom_valve_up') is not None:
+            bu = int(round(float(teleop['boom_valve_up'])))
+            bd = int(round(float(teleop['boom_valve_down'])))
+            ku = int(round(float(teleop['bucket_valve_up'])))
+            kd = int(round(float(teleop['bucket_valve_down'])))
+        else:
+            bu, bd = axis_to_pair(float(teleop['boom']))
+            ku, kd = axis_to_pair(float(teleop['bucket']))
 
     f101 = struct.pack('<HHHH', thr, brk, left, right)
     f102 = struct.pack('<HHHH', bu, bd, ku, kd)
@@ -221,17 +239,24 @@ class LoaderKeyboardGui:
         self._centered = False
         self.yaw = -math.pi / 2  # 车头朝上
         self.articulation = 0.0  # 铰接角（转向视觉）
-        # 侧视图机构角（弧度，相对）
-        self.boom_angle = 0.35
-        self.bucket_angle = 0.2
+        # 侧视图由油缸行程→关节角驱动
+        self.hydro = HydroPlant()
+        self.boom_angle = math.radians(self.hydro.boom_angle_deg())
+        self.bucket_angle = math.radians(self.hydro.bucket_angle_deg())
         self.wheel_spin = 0.0
+        self._hydro_state: dict = {}
 
         self.root = tk.Tk()
         # 标题栏在部分环境下也不支持中文，用英文避免方框
-        self.root.title('Loader Keyboard Teleop (Offline)')
-        self.root.geometry('1100x720')
+        self.root.title('Loader Keyboard Teleop 20261102')
+        try:
+            self.root.wm_class('LoaderTeleop', 'LoaderTeleop')
+        except tk.TclError:
+            pass
+        self.root.geometry('1100x720+80+80')
         self.root.configure(bg='#1a2332')
         self.root.minsize(900, 600)
+        self._force_front()
 
         self.fonts = CjkFonts()
         # 画布静态中文贴图（避免每帧重绘文字）
@@ -251,6 +276,19 @@ class LoaderKeyboardGui:
         self.fonts.pil(12)
         self.fonts.pil(18)
         self.root.after(16, self._tick)
+        self.root.after(200, self._force_front)
+
+    def _force_front(self) -> None:
+        """WSLg 下 Tk 常被藏在任务栏企鹅图标后，强制置顶一次。"""
+        try:
+            self.root.deiconify()
+            self.root.geometry('1100x720+80+80')
+            self.root.lift()
+            self.root.attributes('-topmost', True)
+            self.root.focus_force()
+            self.root.after(1500, lambda: self.root.attributes('-topmost', False))
+        except tk.TclError:
+            pass
 
     def _build_ui(self) -> None:
         top = tk.Frame(self.root, bg='#1a2332')
@@ -259,7 +297,7 @@ class LoaderKeyboardGui:
         self.title_lbl = tk.Label(top, bg='#1a2332')
         self.title_lbl.pack(side=tk.LEFT)
         self.fonts.set_label(
-            self.title_lbl, '无人装载机 · 键盘遥控可视化', size=18, fill='#e8eef7', bg='#1a2332'
+            self.title_lbl, '无人装载机 · 键盘遥控（协议 20261102）', size=18, fill='#e8eef7', bg='#1a2332'
         )
 
         self.hint_lbl = tk.Label(top, bg='#1a2332')
@@ -554,11 +592,11 @@ class LoaderKeyboardGui:
             elif self.y > h + margin:
                 self.y = -margin
 
-        # 大臂/铲斗角速度（加快）
-        self.boom_angle += teleop['boom'] * 2.0 * dt
-        self.bucket_angle += teleop['bucket'] * 2.2 * dt
-        self.boom_angle = max(0.05, min(1.1, self.boom_angle))
-        self.bucket_angle = max(-0.6, min(0.9, self.bucket_angle))
+        boom_jog = 1.0 if teleop['boom'] > 0 else (-1.0 if teleop['boom'] < 0 else 0.0)
+        bucket_jog = 1.0 if teleop['bucket'] > 0 else (-1.0 if teleop['bucket'] < 0 else 0.0)
+        self._hydro_state = self.hydro.step(dt, boom_jog, bucket_jog, bool(teleop['emergency_stop']))
+        self.boom_angle = math.radians(self._hydro_state['boom_angle_deg'])
+        self.bucket_angle = math.radians(self._hydro_state['bucket_angle_deg'])
 
         if abs(teleop['steering']) < 0.05:
             self.articulation *= 1.0 - min(1.0, dt * 4)
@@ -668,12 +706,36 @@ class LoaderKeyboardGui:
         c.create_image(10, 8, anchor='nw', image=self._side_tip_img)
 
     def _update_status(self, teleop: dict) -> None:
-        can = encode_can(teleop, heartbeat=True)
+        merged = dict(teleop)
+        hs = self._hydro_state
+        if hs:
+            merged.update({
+                'boom_valve_up': hs['boom_valve_up'],
+                'boom_valve_down': hs['boom_valve_down'],
+                'bucket_valve_up': hs['bucket_valve_up'],
+                'bucket_valve_down': hs['bucket_valve_down'],
+            })
+        can = encode_can(merged, heartbeat=True)
+        if hs:
+            bu = int(round(hs['boom_valve_up']))
+            bd = int(round(hs['boom_valve_down']))
+            ku = int(round(hs['bucket_valve_up']))
+            kd = int(round(hs['bucket_valve_down']))
+            hydro_txt = (
+                f"倾角→关节角  大臂 {hs['boom_angle_deg']:.1f}°(目标{hs['boom_target_deg']:.1f}°)  "
+                f"铲斗 {hs['bucket_angle_deg']:.1f}°(目标{hs['bucket_target_deg']:.1f}°)\n"
+                f"油缸 大臂 {hs['boom_stroke_m']:.3f}m {hs['boom_cyl_vel']:+.3f}m/s  "
+                f"铲斗 {hs['bucket_stroke_m']:.3f}m {hs['bucket_cyl_vel']:+.3f}m/s\n"
+                f"阀400~700  大臂升/落 {bu}/{bd}  铲斗升/落 {ku}/{kd}\n"
+            )
+        else:
+            hydro_txt = ''
         keys = ' '.join(sorted(k if k != ' ' else 'Space' for k in self.keys_down)) or '(无)'
         text = (
             f"按键: {keys}\n"
             f"档位: {teleop['gear']}   油门: {teleop['throttle']:.2f}   刹车: {teleop['brake']:.2f}\n"
-            f"转向: {teleop['steering']:+.2f}   大臂: {teleop['boom']:+.2f}   铲斗: {teleop['bucket']:+.2f}\n"
+            f"转向: {teleop['steering']:+.2f}\n"
+            f"{hydro_txt}"
             f"喇叭: {'开' if teleop['horn'] else '关'}   灯: {'开' if teleop['light'] else '关'}   "
             f"急停: {'是' if teleop['emergency_stop'] else '否'}\n"
             f"\nCAN 预览:\n"
@@ -707,17 +769,43 @@ class LoaderKeyboardGui:
         self.root.destroy()
 
 
+def _open_html_in_windows(html: Path) -> None:
+    html = html.resolve()
+    print(f'在 Windows 浏览器打开仿真: {html}')
+    print('请点浏览器页面一下，再按 W/A/S/D 等键。不要点任务栏企鹅图标。')
+    try:
+        win = subprocess.check_output(['wslpath', '-w', str(html)], text=True).strip()
+        uri = 'file:///' + win.replace('\\', '/')
+        subprocess.Popen(
+            ['cmd.exe', '/c', 'start', '', uri],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        print(f'无法调用 Windows 浏览器: {exc}')
+        print(f'请手动用浏览器打开: {html}')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--ros', action='store_true', help='同时发布 /controls/teleop')
+    parser.add_argument('--ros', action='store_true', help='同时发布 /controls/teleop（Tk）')
+    parser.add_argument('--tk', action='store_true', help='使用 WSL Tk 窗口（任务栏企鹅常点不开）')
     args = parser.parse_args()
 
-    # WSL 下若无 DISPLAY，提示
-    if sys.platform.startswith('linux') and not (
-        __import__('os').environ.get('DISPLAY') or __import__('os').environ.get('WAYLAND_DISPLAY')
-    ):
-        print('警告: 未检测到 DISPLAY。WSL 请先启用 WSLg 或配置 X server，否则窗口无法弹出。')
+    html = Path(__file__).with_name('loader_keyboard_gui.html')
+    use_tk = args.tk or args.ros
+    if not use_tk:
+        _open_html_in_windows(html)
+        return
 
+    if sys.platform.startswith('linux') and not (
+        os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')
+    ):
+        print('未检测到 DISPLAY，改用浏览器仿真。')
+        _open_html_in_windows(html)
+        return
+
+    print('Tk 窗口若只有企鹅图标且点不开：关掉后不要加 --tk，改用浏览器。')
     app = LoaderKeyboardGui(enable_ros=args.ros)
     app.run()
 

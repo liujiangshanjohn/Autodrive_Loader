@@ -73,9 +73,9 @@ class LoaderCanMonitor(Node):
         self.get_logger().info(
             f'[FB] 设定前进={obj.get("fb_forward")} 后退={obj.get("fb_backward")} | '
             f'输出前进={obj.get("out_forward")} 后退={obj.get("out_backward")} | '
-            f'自动={obj.get("auto_mode")} 油门出={obj.get("throttle_out")} '
-            f'左转电流={obj.get("left_steer_current_mA")}mA '
-            f'右转电流={obj.get("right_steer_current_mA")}mA '
+            f'自动={obj.get("auto_mode")} 无线急停={obj.get("wireless_estop")} '
+            f'油门出={obj.get("throttle_out")} 转向角={obj.get("steer_angle_deg")}° '
+            f'车速={obj.get("speed_kmh")}km/h 电压={obj.get("system_voltage")}V '
             f'超时={obj.get("vcu_communication_timeout")}'
         )
 
